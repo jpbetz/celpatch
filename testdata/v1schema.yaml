@@ -1,0 +1,52 @@
+type: object
+properties:
+  apiVersion:
+    type: string
+  kind:
+    type: string
+  metadata:
+    type: object
+    properties:
+      name:
+        type: string
+      labels:
+        type: object
+        additionalProperties:
+          type: string
+      annotations:
+        type: object
+        additionalProperties:
+          type: string
+  spec:
+    type: object
+    properties:
+      deploymentName:
+        type: string
+      replicas:
+        type: integer
+        minimum: 1
+        maximum: 10
+      list:
+        type: array
+        items:
+          type: string
+      listMap:
+        type: array
+        x-kubernetes-list-type: map
+        x-kubernetes-list-map-keys: [ key ]
+        items:
+          type: object
+          properties:
+            key:
+              type: string
+            value:
+              type: string
+            field1:
+              type: integer
+      something:
+        type: integer
+  status:
+    type: object
+    properties:
+      availableReplicas:
+        type: integer

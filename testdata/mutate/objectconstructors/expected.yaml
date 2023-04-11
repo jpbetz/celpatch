@@ -1,0 +1,18 @@
+apiVersion: group.example.com/v1
+kind: Example
+metadata:
+  name: "alpha"
+spec:
+  deploymentName: "alpha-deployment"
+  replicas: 2
+  list:
+    - "x"
+  listMap:
+    - key: "new"
+      value: "newValue"
+    - key: "k1"
+      value: "1"
+    - key: "k2"
+      value: "2"
+status:
+  availableReplicas: 0

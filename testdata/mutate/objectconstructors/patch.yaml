@@ -1,0 +1,9 @@
+{$: "Object{
+  spec: Object.spec{
+    deploymentName: oldObject.metadata.name + '-deployment',
+    replicas: 2,
+    list: ['x'],
+    listMap: [Object.spec.listMap.item{key: 'new', value: 'newValue'}] + oldObject.spec.listMap
+  }
+}
+"}

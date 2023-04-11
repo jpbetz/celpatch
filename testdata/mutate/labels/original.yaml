@@ -1,0 +1,6 @@
+apiVersion: group.example.com/v1
+kind: Example
+metadata:
+  name: "alpha"
+  labels:
+    environment: test

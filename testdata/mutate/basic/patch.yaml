@@ -1,0 +1,6 @@
+spec:
+  deploymentName: {$: "oldObject.metadata.name + '-deployment'"}
+  list: {$: "oldObject.spec.list.filter(e, e != 'b')"}
+  listMap:
+    - key: "k2"
+      value: {$: "string(4 * 50)"}

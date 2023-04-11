@@ -1,0 +1,5 @@
+spec:
+  replicas: {$: "oldObject.spec.copies"}
+  list: {$: "[oldObject.spec.value.split('-')[0], oldObject.spec.value.split('-')[1]]"}
+  listMap: {$: "oldObject.spec.listMap.map(e, Object.spec.listMap.item{key: e.id, value: e.contents})"}
+  something: {$: "oldObject.spec.something.getSeconds()"}
