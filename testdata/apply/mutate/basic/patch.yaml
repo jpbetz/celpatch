@@ -1,0 +1,13 @@
+mutation: > 
+    Object{
+        spec: Object.spec{
+            deploymentName: oldObject.metadata.name + '-deployment',
+            list: oldObject.spec.list.filter(e, e != 'b'),
+            listMap: [
+                Object.spec.listMap.item{
+                    key: "k2",
+                    value: string(4 * 50)
+                }
+            ]
+        }
+    }

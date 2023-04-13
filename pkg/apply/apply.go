@@ -41,10 +41,10 @@ const (
 	oldObjectVar      = "oldObject"
 )
 
-// Convert performs a version conversion using the patch.
+// ConvertWithTemplate performs a version conversion using the patch.
 // TODO: Remove schema.Structural from arguments and introduce a more efficient alternative to the prune
 // operation.
-func Convert(fromVersionSchema, toVersionSchema *spec.Schema, toVersionStructuralSchema *schema.Structural, fromObject, patch any) any {
+func ConvertWithTemplate(fromVersionSchema, toVersionSchema *spec.Schema, toVersionStructuralSchema *schema.Structural, fromObject, patch any) any {
 	oldOpenAPISchema := &openapi.Schema{Schema: fromVersionSchema}
 	newOpenAPISchema := &openapi.Schema{Schema: toVersionSchema}
 	// Conversion Flow:
@@ -60,10 +60,34 @@ func Convert(fromVersionSchema, toVersionSchema *spec.Schema, toVersionStructura
 	return Merge(toVersionSchema, pruned, ac, true)
 }
 
-// Mutate applies the patch to the object.
-func Mutate(schema *spec.Schema, obj, patch any) any {
+func ConvertApply(fromVersionSchema, toVersionSchema *spec.Schema, toVersionStructuralSchema *schema.Structural, fromObject, patch any) any {
+	oldOpenAPISchema := &openapi.Schema{Schema: fromVersionSchema}
+	newOpenAPISchema := &openapi.Schema{Schema: toVersionSchema}
+	// Conversion Flow:
+	// 1. Build the apply configuration
+	expression := patch.(map[string]any)["mutation"].(string)
+	ac := Eval(oldOpenAPISchema, newOpenAPISchema, fromObject, expression, false)
+	// 2. Start converting the v1 object to v2 and pruning: (a) any fields not in v2,
+	//    (b) any fields with incorrect types (c) any listType=map entries with missing keys.
+	// TODO: This prune is probably better handled by checking differences between schemas
+	// and only keeping what is compatible.
+	pruned := runtime.DeepCopyJSON(fromObject.(map[string]any))
+	Prune(pruned, toVersionStructuralSchema, true)
+	// 3. Merge the patch with the pruned object
+	return Merge(toVersionSchema, pruned, ac, true)
+}
+
+// MutateWithTemplate applies the patch to the object.
+func MutateWithTemplate(schema *spec.Schema, obj, patch any) any {
 	s := &openapi.Schema{Schema: schema}
 	applyConfiguration := Substitute(s, s, obj, patch, false)
+	return Merge(schema, obj, applyConfiguration, false)
+}
+
+func MutateApply(schema *spec.Schema, obj any, patch any) any {
+	expression := patch.(map[string]any)["mutation"].(string)
+	openAPISchema := &openapi.Schema{Schema: schema}
+	applyConfiguration := Eval(openAPISchema, openAPISchema, obj, expression, false)
 	return Merge(schema, obj, applyConfiguration, false)
 }
 
@@ -100,6 +124,11 @@ func Merge(s *spec.Schema, obj, patch any, preserveUnknownFields bool) any {
 func Substitute(oldObjectSchema, patchSchema common.Schema, obj, patch any, isConversion bool) any {
 	a := &applier{patchSchema: patchSchema, oldObjectSchema: oldObjectSchema, oldObject: obj, isConvertion: isConversion}
 	return a.applyTemplate(patchSchema, patch, obj)
+}
+
+func Eval(oldObjectSchema, patchSchema common.Schema, obj any, expression string, isConversion bool) any {
+	a := &applier{patchSchema: patchSchema, oldObjectSchema: oldObjectSchema, oldObject: obj, isConvertion: isConversion}
+	return a.evaluateSubstitution(nil, nil, expression, isConversion)
 }
 
 type applier struct {

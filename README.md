@@ -26,18 +26,24 @@ status:
   availableReplicas: 0
 ```
 
-The following YAML creates an apply configuration:
+The following CEL expression creates an apply configuration:
 
-```yaml
-spec:
-  deploymentName: {$: "object.metadata.name + '-deployment'"}
-  list: {$: "self.filter(e, e != 'b')"}
-  listMap:
-    - key: "k2"
-      value: {$: "string(4 * 50)"}
+```cel
+Object{
+  spec: Object.spec{
+    deploymentName: oldObject.metadata.name + '-deployment',
+    list: oldObject.spec.list.filter(e, e != 'b'),
+    listMap: [
+      Object.spec.listMap.item{
+        key: "k2",
+        value: string(4 * 50)
+      }
+    ]
+  }
+}
 ```
 
-Which results in:
+Which merges into the original object resulting in:
 
 ```yaml
 apiVersion: group.example.com/v1
@@ -58,30 +64,23 @@ status:
   availableReplicas: 0
 ```
 
-Note that merge rules such as `x-kubernetes-list-type: map` are respected.
+Note that Kubernetes merge rules such as `x-kubernetes-list-type: map` are respected.
 
-CEL object construction may be useful in some cases. E.g.:
+CEL has always supported object construction like the `Object{}` in the above examples.
+However, we have not enabled CEL object construction is Kubernetes for validation features, so we
+would need to enable it and define how type names are represented in CEL for OpenAPI. This example
+uses "Object" name as the root type and then uses the path in the OpenAPIv3 schema to identify nested
+types.
 
-```yaml
-spec:
-  listMap: {$: "[Example.spec.listMap.item{key: 'first', value: 'prepended'}] + object.spec.listMap"}
-```
+This repo also contains examples that perform version conversion and that use different approaches.
 
-CEL object construction is not supported in Kubernetes today, so we would need to define
-how object types are represented. This example uses the Kind name as the root type and then
-uses the path in the OpenAPIv3 schema to identify nested types.
-
-Many simple mutations can be written this way without any template variables. For example, it is
-trivial to set a label or inject a basic sidecar.
-
-The use of `{$: "<cel expression>"}` is just an example. Template substitution can be
-declared with any marker key we want. We don't necessarily need to use "$".
+For example, the `mutate-templates` directory shows an approach where templates containing CEL
+expressions are embedded in YAML.
 
 TODO:
 
-- [ ] Figure out how to best prepend initContainers (append is easy)
-- [ ] Do we need `{$if: "<condition>", $then: <more YAML>}` ? Note that `{$: "<condition> ? <cel data literal> : {} "}` is possible.
-- [ ] Do we need looping constructs? `{$: "self.map(x, {somefield: x.something}) "}` is possible.
+- [ ] Try adding a "merge" function to CEL that calls SSA merge directly.
+- [ ] Experiment with Guided APIs, in particular, using field paths to specify which field to modify.
 
 Mutation cases tested:
 
@@ -92,6 +91,8 @@ Mutation cases tested:
 - [ ] Inject readiness/liveness probes
 - [ ] Clear a field
 - [x] Inject labels/annotations
+- [ ] Add if not present
+- 
 
 Conversion cases tested:
 

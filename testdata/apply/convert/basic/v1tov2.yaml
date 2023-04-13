@@ -1,0 +1,9 @@
+mutation: >
+  Object{
+    spec: Object.spec{
+      copies: oldObject.spec.replicas,
+      value: oldObject.spec.list[0] + '-' + oldObject.spec.list[1],
+      listMap: oldObject.spec.listMap.map(e, Object.spec.listMap.item{id: e.key, contents: e.value}),
+      something: duration(string(oldObject.spec.something) + 's')
+    }
+  }
