@@ -66,7 +66,7 @@ func ConvertApply(fromVersionSchema, toVersionSchema *spec.Schema, toVersionStru
 	// Conversion Flow:
 	// 1. Build the apply configuration
 	expression := patch.(map[string]any)["mutation"].(string)
-	ac := Eval(oldOpenAPISchema, newOpenAPISchema, fromObject, expression, false)
+	ac := Eval(oldOpenAPISchema, newOpenAPISchema, fromObject, expression, true)
 	// 2. Start converting the v1 object to v2 and pruning: (a) any fields not in v2,
 	//    (b) any fields with incorrect types (c) any listType=map entries with missing keys.
 	// TODO: This prune is probably better handled by checking differences between schemas
@@ -261,37 +261,61 @@ func (a *applier) evaluateSubstitution(selfSchema common.Schema, self any, expre
 }
 
 // valueToUnstructured strips away all ref.Val and replaces them with unstructured equivalents.
-func valueToUnstructured(o ref.Val) any {
-	switch t := o.Value().(type) {
-	case map[ref.Val]ref.Val:
-		result := make(map[string]any, len(t))
-		for k, v := range t {
-			result[k.Value().(string)] = valueToUnstructured(v)
+func valueToUnstructured(o any) any {
+	// TODO: this is a mess. Essentially, I need a way to convert data back out of CEL and
+	// because of data literals, the data can be a mix of ref.Vals and Go scalars...
+	switch a := o.(type) {
+	case ref.Val:
+		switch t := a.Value().(type) {
+		case map[ref.Val]ref.Val:
+			result := make(map[string]any, len(t))
+			for k, v := range t {
+				result[k.Value().(string)] = valueToUnstructured(v)
+			}
+			return result
+		case []ref.Val:
+			result := make([]any, len(t))
+			for i, e := range t {
+				result[i] = valueToUnstructured(e)
+			}
+			return result
+		case time.Duration:
+			return t.String() // TODO: what other types should be handled here?
+		default:
+			return valueToUnstructured(t)
+		}
+	case map[string]any:
+		result := make(map[string]any, len(a))
+		for k, v := range a {
+			result[k] = valueToUnstructured(v)
 		}
 		return result
-	case []ref.Val:
-		result := make([]any, len(t))
-		for i, e := range t {
+	case []any:
+		result := make([]any, len(a))
+		for i, e := range a {
 			result[i] = valueToUnstructured(e)
 		}
 		return result
 	case time.Duration:
-		return t.String() // TODO: what other types should be handled here?
-	default:
-		return t
+		return a.String()
 	}
+	return o
 }
 
-func buildBaseEnv() (*cel.Env, error) {
+func baseOpts() []cel.EnvOption {
 	var opts []cel.EnvOption
 	opts = append(opts, cel.HomogeneousAggregateLiterals())
 	// Validate function declarations once during base env initialization,
 	// so they don't need to be evaluated each time a CEL rule is compiled.
 	// This is a relatively expensive operation.
-	opts = append(opts, cel.EagerlyValidateDeclarations(true), cel.DefaultUTCTimeZone(true))
+	//opts = append(opts, cel.EagerlyValidateDeclarations(true)) // TODO: enabble when I figure what is going wrong with optional types
+	opts = append(opts, cel.DefaultUTCTimeZone(true))
+	opts = append(opts, cel.OptionalTypes())
 	opts = append(opts, library.ExtensionLibs...)
-
-	return cel.NewEnv(opts...)
+	return opts
+}
+func buildBaseEnv() (*cel.Env, error) {
+	return cel.NewEnv(baseOpts()...)
 }
 
 type evaluationActivation struct {

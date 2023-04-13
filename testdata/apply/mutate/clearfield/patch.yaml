@@ -1,0 +1,6 @@
+mutation: > 
+    Object{
+        spec: Object.spec{
+            ?deploymentName: optional.none()
+        }
+    }

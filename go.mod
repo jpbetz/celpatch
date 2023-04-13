@@ -4,7 +4,7 @@ go 1.20
 
 require (
 	github.com/golang/protobuf v1.5.3
-	github.com/google/cel-go v0.12.6
+	github.com/google/cel-go v0.13.0
 	k8s.io/apiextensions-apiserver v0.0.0-00010101000000-000000000000
 	k8s.io/apimachinery v0.0.0
 	k8s.io/apiserver v0.0.0
@@ -43,7 +43,7 @@ require (
 	golang.org/x/text v0.8.0 // indirect
 	golang.org/x/time v0.0.0-20220210224613-90d013bbcef8 // indirect
 	google.golang.org/appengine v1.6.7 // indirect
-	google.golang.org/genproto v0.0.0-20220502173005-c8bf987b8c21 // indirect
+	google.golang.org/genproto v0.0.0-20221027153422-115e99e71e1c // indirect
 	google.golang.org/protobuf v1.28.1 // indirect
 	gopkg.in/inf.v0 v0.9.1 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect

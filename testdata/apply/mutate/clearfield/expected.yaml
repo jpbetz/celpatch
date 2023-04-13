@@ -1,0 +1,7 @@
+apiVersion: group.example.com/v1
+kind: Example
+metadata:
+  name: "alpha"
+spec:
+  replicas: 1
+  deploymentName: "alpha-deployment" # TODO: this field should be cleared, but it requires a CEL macro
