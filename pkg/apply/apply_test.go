@@ -159,6 +159,33 @@ func TestConvertWithTemplate(t *testing.T) {
 	}
 }
 
+func TestDirect(t *testing.T) {
+	testdata := "../../testdata"
+	schema := loadTestYaml[spec.Schema](filepath.Join(testdata, "v1schema.yaml"))
+
+	testDir := filepath.Join(testdata, "direct", "mutate")
+	entries, err := os.ReadDir(testDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		if e.IsDir() {
+			t.Run(e.Name(), func(t *testing.T) {
+				testCase := e.Name()
+				original := loadTestYaml[any](filepath.Join(testDir, testCase, "original.yaml"))
+				patch := loadTestYaml[any](filepath.Join(testDir, testCase, "patch.yaml"))
+				expected := loadTestYaml[any](filepath.Join(testDir, testCase, "expected.yaml"))
+
+				merged := MutateDirect(&schema, original, patch)
+
+				if !reflect.DeepEqual(expected, merged) {
+					t.Errorf("Expected:\n%s\nBut got:\n%s\n", yamlToString(expected), yamlToString(merged))
+				}
+			})
+		}
+	}
+}
+
 func yamlToString(obj any) string {
 	out, err := yaml.Marshal(obj)
 	if err != nil {

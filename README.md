@@ -1,9 +1,9 @@
 Proof of concept: Use CEL templates to mutate Kubernetes resources.
 =========
 
-This uses CEL expressions embedded in YAML to create an partial object
-which is then merged into a Kubernetes resource using the same "merge" operation used
-by server side apply.
+This uses CEL expressions to create "apply configurations" of objects,
+which are then merged into a Kubernetes resource using the "merge" operation of
+server side apply.
 
 For example, given an original object:
 
@@ -66,11 +66,22 @@ status:
 
 Note that Kubernetes merge rules such as `x-kubernetes-list-type: map` are respected.
 
-CEL has always supported object construction like the `Object{}` in the above examples.
-However, we have not enabled CEL object construction is Kubernetes for validation features, so we
-would need to enable it and define how type names are represented in CEL for OpenAPI. This example
-uses "Object" name as the root type and then uses the path in the OpenAPIv3 schema to identify nested
-types.
+Unsetting fields can be supported using CEL's optional types:
+
+```
+Object{
+    spec: Object.spec{
+        ?fieldToRemove: optional.none()
+    }
+}
+```
+
+CEL has always supported object construction like the `Object{}` expression in the above examples.
+However, we do not need CEL object construction is Kubernetes for validation features, so we had
+never implemented the `NewValue` function for Kubernetes types that is required for CEL expressions
+to actually use object construction. Would need to enable it and define how type names are represented 
+in CEL for OpenAPI. This example uses "Object" name as the root type and then uses the path in the
+OpenAPIv3 schema to identify nested types.
 
 This repo also contains examples that perform version conversion and that use different approaches.
 

@@ -1,5 +1,5 @@
 mutation: >
-    Object{
+    objects.apply(oldObject, Object{
         spec: Object.spec{
             deploymentName: oldObject.metadata.name + '-deployment',
             list: oldObject.spec.list.filter(e, e != 'b'),
@@ -9,5 +9,6 @@ mutation: >
                     value: string(4 * 50)
                 }
             ]
-        }
-    }
+        },
+        ?status: optional.none()
+    })

@@ -20,7 +20,9 @@ import (
 	"time"
 
 	"github.com/google/cel-go/cel"
+	"github.com/google/cel-go/common/types"
 	"github.com/google/cel-go/common/types/ref"
+	"github.com/google/cel-go/common/types/traits"
 	"github.com/google/cel-go/interpreter"
 	"k8s.io/apiextensions-apiserver/pkg/apiserver/schema"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -31,6 +33,8 @@ import (
 	"k8s.io/kube-openapi/pkg/validation/spec"
 	smdschema "sigs.k8s.io/structured-merge-diff/v4/schema"
 	"sigs.k8s.io/structured-merge-diff/v4/typed"
+
+	cel2 "jpbetz.github.com/celpatch/pkg/apply/cel"
 )
 
 const (
@@ -89,6 +93,13 @@ func MutateApply(schema *spec.Schema, obj any, patch any) any {
 	openAPISchema := &openapi.Schema{Schema: schema}
 	applyConfiguration := Eval(openAPISchema, openAPISchema, obj, expression, false)
 	return Merge(schema, obj, applyConfiguration, false)
+}
+
+func MutateDirect(schema *spec.Schema, obj any, patch any) any {
+	expression := patch.(map[string]any)["mutation"].(string)
+	openAPISchema := &openapi.Schema{Schema: schema}
+	result := Eval(openAPISchema, openAPISchema, obj, expression, false)
+	return result
 }
 
 // Merge performs a server side apply style merge of the patch (apply configuration) to the
@@ -200,6 +211,27 @@ func (a *applier) applyTemplate(schema common.Schema, patchValue, oldValue any) 
 	}
 }
 
+// TODO: This is not right. The schema needs to be the right one for whatever object "apply()"
+// was called on, which is not necessarily the root schema.
+type merger struct {
+	schema        *spec.Schema
+	openAPISchema common.Schema
+}
+
+func (m *merger) Merge(obj, patch, removals ref.Val) ref.Val {
+	objVal := valueToUnstructured(obj)
+	patchval := valueToUnstructured(patch)
+
+	result := Merge(m.schema, objVal, patchval, false)
+	resultObj := result.(map[string]any)
+	iter := removals.(traits.Iterable).Iterator()
+	for iter.HasNext() == types.True {
+		removal := iter.Next().Value().(string)
+		delete(resultObj, removal)
+	}
+	return common.UnstructuredToVal(resultObj, m.openAPISchema)
+}
+
 // evaluateSubstitution a template variable substitution CEL expression.
 func (a *applier) evaluateSubstitution(selfSchema common.Schema, self any, expression string, isConversion bool) any {
 	//selfDecl := common.SchemaDeclType(selfSchema, selfSchema == a.rootSchema)
@@ -207,7 +239,8 @@ func (a *applier) evaluateSubstitution(selfSchema common.Schema, self any, expre
 
 	objVal := common.UnstructuredToVal(a.oldObject, a.oldObjectSchema)
 
-	baseEnv, err := buildBaseEnv()
+	m := &merger{schema: a.oldObjectSchema.(*openapi.Schema).Schema, openAPISchema: a.oldObjectSchema}
+	baseEnv, err := buildBaseEnv(m)
 	if err != nil {
 		panic(err)
 	}
@@ -302,7 +335,7 @@ func valueToUnstructured(o any) any {
 	return o
 }
 
-func baseOpts() []cel.EnvOption {
+func baseOpts(merger cel2.Merger) []cel.EnvOption {
 	var opts []cel.EnvOption
 	opts = append(opts, cel.HomogeneousAggregateLiterals())
 	// Validate function declarations once during base env initialization,
@@ -311,11 +344,12 @@ func baseOpts() []cel.EnvOption {
 	//opts = append(opts, cel.EagerlyValidateDeclarations(true)) // TODO: enabble when I figure what is going wrong with optional types
 	opts = append(opts, cel.DefaultUTCTimeZone(true))
 	opts = append(opts, cel.OptionalTypes())
+	opts = append(opts, cel2.Objects(merger))
 	opts = append(opts, library.ExtensionLibs...)
 	return opts
 }
-func buildBaseEnv() (*cel.Env, error) {
-	return cel.NewEnv(baseOpts()...)
+func buildBaseEnv(merger cel2.Merger) (*cel.Env, error) {
+	return cel.NewEnv(baseOpts(merger)...)
 }
 
 type evaluationActivation struct {
