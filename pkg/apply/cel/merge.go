@@ -94,8 +94,6 @@ func celApply(meh cel.MacroExprHelper, target *exprpb.Expr, args []*exprpb.Expr)
 	case *exprpb.Expr_StructExpr:
 		removals := findRemovals(meh, varApplyConfig, "")
 
-		// TODO: recursively accumulate field removals from data literal
-
 		return meh.GlobalCall("apply_filter",
 			object,
 			meh.NewObject("applystruct",

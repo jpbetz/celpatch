@@ -43,6 +43,15 @@ properties:
               type: string
             field1:
               type: integer
+      widgets:
+        type: array
+        items:
+          type: object
+          properties:
+            part:
+              type: string
+            componentId:
+              type: integer
       extra:
         type: object
         additionalProperties:

@@ -16,5 +16,10 @@ spec:
     "key1":
       f1: "a"
       f2: "b"
+  widgets:
+    - part: "one"
+      componentId: 1
+    - part: "two"
+      componentId: 2
 status:
   availableReplicas: 0

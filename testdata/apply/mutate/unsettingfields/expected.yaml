@@ -14,3 +14,8 @@ spec:
   extra:
     "key1":
       f1: "a"
+  widgets:
+    - part: "xyz"
+      componentId: 1
+    - part: "xyz"
+      componentId: 2

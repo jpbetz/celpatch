@@ -18,6 +18,7 @@ package types
 
 import (
 	"fmt"
+	"math/rand"
 	"reflect"
 
 	"github.com/google/cel-go/cel"
@@ -135,7 +136,8 @@ func (tp *applyTypeProvider) FindFieldType(typeName, fieldName string) (*ref.Fie
 	if typeName == ApplyStructType.TypeName() {
 		if fieldName == "object" {
 			return &ref.FieldType{
-				Type: decls.NewTypeParamType("K"),
+				// TODO: deterministically pick bound param type IDs
+				Type: decls.NewTypeParamType(fmt.Sprintf("ApplyStruct-%d", rand.Int())),
 				IsSet: func(obj any) bool {
 					return true // TODO
 				},

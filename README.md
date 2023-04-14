@@ -64,17 +64,66 @@ status:
   availableReplicas: 0
 ```
 
-Note that Kubernetes merge rules such as `x-kubernetes-list-type: map` are respected.
+Note that because a server side apply merging is used,
+schema merge directives added to OpenAPI such as `x-kubernetes-list-type: map` are respected.
 
-Unsetting fields can be supported using CEL's optional types:
+Because there is no field manager used for the merge, the merge is applied as if a never-before-used
+field manager is used to perform the apply. This means that we must do something special to make it
+possible to unset fields.
+
+We will use CEL's optional type feature:
 
 ```
 Object{
     spec: Object.spec{
-        ?fieldToRemove: optional.none()
+        ?fieldToRemove: optional.none() # plz remove
     }
 }
 ```
+
+Sometimes the current state of the object will be needed. This is available via the
+`oldObject` variable. For example, to update all containers in a pod to use the "Always"
+imagePullPolicy:
+
+```
+Object{
+    spec: Object.spec{
+        containers: oldObject.spec.containers.map(c,
+            Object.spec.containers.item{
+                name: c.name,
+                imagePullPolicy: "Always"
+            })
+        )
+    }
+}
+```
+
+On rare occasions, it may be necessary to perform apply directly on part of an object. For example,
+imagine that the field "widgets" is a list of objects, but the field is not a listType=map, 
+and so there is no way to merge in an added field to each widget using server side apply
+directly like was done with the above imagePullPolicy example.
+
+A workaround is to recreate all the widgets list, but use apply() on each widget to merge
+in a single field change:
+
+```
+Object{
+    spec: Object.spec{
+        containers: oldObject.spec.widgets.map(oldWidget,
+            objects.apply(oldWidget, Object.spec.widgets.item{
+                part: "xyz"
+            })
+        )
+    }
+}
+```
+
+Note that such fields are very rare in the Kubernetes API since they don't work well with server
+side apply. But this may come in handy with CRDs when the CRD author fails to use
+`x-kubernetes-list-type: map`.
+
+Notes
+-----
 
 CEL has always supported object construction like the `Object{}` expression in the above examples.
 However, we do not need CEL object construction is Kubernetes for validation features, so we had
@@ -88,12 +137,13 @@ This repo also contains examples that perform version conversion and that use di
 For example, the `mutate-templates` directory shows an approach where templates containing CEL
 expressions are embedded in YAML.
 
-TODO:
+TODO
+----
 
-- [ ] Try adding a "merge" function to CEL that calls SSA merge directly.
+- [ ] Support listType=map for apply() function's field removal
 - [ ] Experiment with Guided APIs, in particular, using field paths to specify which field to modify.
 
-Mutation cases tested:
+Mutation cases to test:
 
 - [ ] Sidecar injection
 - [ ] Auto-population of fields (AlwaysPullImages)
@@ -103,16 +153,15 @@ Mutation cases tested:
 - [ ] Clear a field
 - [x] Inject labels/annotations
 - [ ] Add if not present
-- 
 
-Conversion cases tested:
+Conversion cases to test:
 
 - [x] Rename a field
-- [x] Change type of a field
+- [x] Change the type of a field
 - [ ] Move a field to a different location in the object
-- [ ] Move field from annotations to object
+- [ ] Move field from annotations to object (the annotation should be unset in the version with the field)
 - [x] Re-key a listType=map
-- [ ] Split a field into two fields (e.g. field="a/b" becomes field1="a", field2="b")
+- [x] Split a field into two fields (e.g. field="a/b" becomes field1="a", field2="b")
 - [ ] Convert from scalar field to a list of scalars, (e.g. field="a" becomes field1=["a"])
 - [ ] Conditionally convert (if apply the transformation, else do nothing)
 - [ ] Complex type instantiation (e.g. spec.x,spec.y,spec.z becomes spec.subobj.x, spec.subobj.y, spec.subobj.z)

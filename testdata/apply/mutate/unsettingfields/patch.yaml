@@ -14,7 +14,12 @@ mutation: >
                 "key1": Object.spec.extra.property{
                     ?f2: optional.none()
                 }
-            }            
+            },
+            widgets: oldObject.spec.widgets.map(oldWidget,
+                objects.apply(oldWidget, Object.spec.widgets.item{
+                    part: "xyz"
+                })
+            )
         },
         ?status: optional.none()
     }
