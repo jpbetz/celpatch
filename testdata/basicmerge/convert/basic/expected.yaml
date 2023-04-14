@@ -1,0 +1,15 @@
+apiVersion: group.example.com/v1
+kind: Example
+metadata:
+  name: "alpha"
+spec:
+  copies: 1
+  value: 'a-b'
+  listMap:
+    - id: "k1"
+      contents: "1"
+    - id: "k2"
+      contents: "2"
+  something: "3m20s"
+status:
+  availableReplicas: 0

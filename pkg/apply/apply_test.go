@@ -31,75 +31,37 @@ import (
 	"sigs.k8s.io/yaml"
 )
 
-func TestMutateApply(t *testing.T) {
-	testdata := "../../testdata"
-	schema := loadTestYaml[spec.Schema](filepath.Join(testdata, "v1schema.yaml"))
-
-	testDir := filepath.Join(testdata, "apply", "mutate")
-	entries, err := os.ReadDir(testDir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, e := range entries {
-		if e.IsDir() {
-			t.Run(e.Name(), func(t *testing.T) {
-				testCase := e.Name()
-				original := loadTestYaml[any](filepath.Join(testDir, testCase, "original.yaml"))
-				patch := loadTestYaml[any](filepath.Join(testDir, testCase, "patch.yaml"))
-				expected := loadTestYaml[any](filepath.Join(testDir, testCase, "expected.yaml"))
-
-				merged := MutateApply(&schema, original, patch)
-
-				if !reflect.DeepEqual(expected, merged) {
-					t.Errorf("Expected:\n%s\nBut got:\n%s\n", yamlToString(expected), yamlToString(merged))
-				}
-			})
-		}
-	}
+func TestMutateBasicMerge(t *testing.T) {
+	testMutate(t, "basicmerge", MutateBasicMerge)
 }
 
-func TestConvertApply(t *testing.T) {
-	testdata := "../../testdata"
-	v1schema := loadTestYaml[spec.Schema](filepath.Join(testdata, "v1schema.yaml"))
-	v1Structural := loadStructural(filepath.Join(testdata, "v1schema.yaml"))
-	v2schema := loadTestYaml[spec.Schema](filepath.Join(testdata, "v2schema.yaml"))
-	v2Structural := loadStructural(filepath.Join(testdata, "v2schema.yaml"))
-
-	testDir := filepath.Join(testdata, "apply", "convert")
-	entries, err := os.ReadDir(testDir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, e := range entries {
-		if e.IsDir() {
-			t.Run(e.Name(), func(t *testing.T) {
-				testCase := e.Name()
-				original := loadTestYaml[any](filepath.Join(testDir, testCase, "original.yaml"))
-				patch := loadTestYaml[any](filepath.Join(testDir, testCase, "v1tov2.yaml"))
-				reversePatch := loadTestYaml[any](filepath.Join(testDir, testCase, "v2tov1.yaml"))
-				expected := loadTestYaml[any](filepath.Join(testDir, testCase, "expected.yaml"))
-
-				merged := ConvertApply(&v1schema, &v2schema, v2Structural, original, patch)
-
-				if !reflect.DeepEqual(expected, merged) {
-					t.Errorf("Expected:\n%s\nBut got:\n%s\n", yamlToString(expected), yamlToString(merged))
-				}
-
-				merged = ConvertApply(&v2schema, &v1schema, v1Structural, expected, reversePatch)
-
-				if !reflect.DeepEqual(original, merged) {
-					t.Errorf("Expected:\n%s\nBut got:\n%s\n", yamlToString(original), yamlToString(merged))
-				}
-			})
-		}
-	}
+func TestConvertBasicMerge(t *testing.T) {
+	testConvert(t, "basicmerge", ConvertBasicMerge)
 }
 
 func TestMutateWithTemplates(t *testing.T) {
+	testMutate(t, "templates", MutateWithTemplate)
+}
+
+func TestConvertWithTemplate(t *testing.T) {
+	testConvert(t, "templates", ConvertWithTemplate)
+}
+
+func TestApplyMutate(t *testing.T) {
+	testMutate(t, "apply", MutateApply)
+}
+
+func TestConvertApply(t *testing.T) {
+	testConvert(t, "apply", ConvertApply)
+}
+
+type mutateFn func(schema *spec.Schema, obj any, patch any) any
+
+func testMutate(t *testing.T, dir string, mutator mutateFn) {
 	testdata := "../../testdata"
 	schema := loadTestYaml[spec.Schema](filepath.Join(testdata, "v1schema.yaml"))
 
-	testDir := filepath.Join(testdata, "templates", "mutate")
+	testDir := filepath.Join(testdata, dir, "mutate")
 	entries, err := os.ReadDir(testDir)
 	if err != nil {
 		t.Fatal(err)
@@ -112,7 +74,7 @@ func TestMutateWithTemplates(t *testing.T) {
 				patch := loadTestYaml[any](filepath.Join(testDir, testCase, "patch.yaml"))
 				expected := loadTestYaml[any](filepath.Join(testDir, testCase, "expected.yaml"))
 
-				merged := MutateWithTemplate(&schema, original, patch)
+				merged := mutator(&schema, original, patch)
 
 				if !reflect.DeepEqual(expected, merged) {
 					t.Errorf("Expected:\n%s\nBut got:\n%s\n", yamlToString(expected), yamlToString(merged))
@@ -122,14 +84,16 @@ func TestMutateWithTemplates(t *testing.T) {
 	}
 }
 
-func TestConvertWithTemplate(t *testing.T) {
+type convertFn func(fromVersionSchema, toVersionSchema *spec.Schema, toVersionStructuralSchema *schema2.Structural, fromObject, patch any) any
+
+func testConvert(t *testing.T, dir string, converter convertFn) {
 	testdata := "../../testdata"
 	v1schema := loadTestYaml[spec.Schema](filepath.Join(testdata, "v1schema.yaml"))
 	v1Structural := loadStructural(filepath.Join(testdata, "v1schema.yaml"))
 	v2schema := loadTestYaml[spec.Schema](filepath.Join(testdata, "v2schema.yaml"))
 	v2Structural := loadStructural(filepath.Join(testdata, "v2schema.yaml"))
 
-	testDir := filepath.Join(testdata, "templates", "convert")
+	testDir := filepath.Join(testdata, dir, "convert")
 	entries, err := os.ReadDir(testDir)
 	if err != nil {
 		t.Fatal(err)
@@ -143,43 +107,16 @@ func TestConvertWithTemplate(t *testing.T) {
 				reversePatch := loadTestYaml[any](filepath.Join(testDir, testCase, "v2tov1.yaml"))
 				expected := loadTestYaml[any](filepath.Join(testDir, testCase, "expected.yaml"))
 
-				merged := ConvertWithTemplate(&v1schema, &v2schema, v2Structural, original, patch)
+				merged := converter(&v1schema, &v2schema, v2Structural, original, patch)
 
 				if !reflect.DeepEqual(expected, merged) {
 					t.Errorf("Expected:\n%s\nBut got:\n%s\n", yamlToString(expected), yamlToString(merged))
 				}
 
-				merged = ConvertWithTemplate(&v2schema, &v1schema, v1Structural, expected, reversePatch)
+				merged = converter(&v2schema, &v1schema, v1Structural, expected, reversePatch)
 
 				if !reflect.DeepEqual(original, merged) {
 					t.Errorf("Expected:\n%s\nBut got:\n%s\n", yamlToString(original), yamlToString(merged))
-				}
-			})
-		}
-	}
-}
-
-func TestDirect(t *testing.T) {
-	testdata := "../../testdata"
-	schema := loadTestYaml[spec.Schema](filepath.Join(testdata, "v1schema.yaml"))
-
-	testDir := filepath.Join(testdata, "direct", "mutate")
-	entries, err := os.ReadDir(testDir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, e := range entries {
-		if e.IsDir() {
-			t.Run(e.Name(), func(t *testing.T) {
-				testCase := e.Name()
-				original := loadTestYaml[any](filepath.Join(testDir, testCase, "original.yaml"))
-				patch := loadTestYaml[any](filepath.Join(testDir, testCase, "patch.yaml"))
-				expected := loadTestYaml[any](filepath.Join(testDir, testCase, "expected.yaml"))
-
-				merged := MutateDirect(&schema, original, patch)
-
-				if !reflect.DeepEqual(expected, merged) {
-					t.Errorf("Expected:\n%s\nBut got:\n%s\n", yamlToString(expected), yamlToString(merged))
 				}
 			})
 		}

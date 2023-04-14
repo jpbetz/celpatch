@@ -12,5 +12,9 @@ spec:
       value: "1"
     - key: "k2"
       value: "2"
+  extra:
+    "key1":
+      f1: "a"
+      f2: "b"
 status:
   availableReplicas: 0

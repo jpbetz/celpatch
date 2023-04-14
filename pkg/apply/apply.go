@@ -17,6 +17,7 @@ limitations under the License.
 package apply
 
 import (
+	"strings"
 	"time"
 
 	"github.com/google/cel-go/cel"
@@ -38,11 +39,12 @@ import (
 )
 
 const (
-	templateVar       = "$"
-	objectTypeName    = "Object" // com.example.group.v1.Example if we want to fully qualify
-	oldObjectTypeName = "OldObject"
-	oldSelfVar        = "oldSelf"
-	oldObjectVar      = "oldObject"
+	templateVar        = "$"
+	objectTypeName     = "Object" // com.example.group.v1.Example if we want to fully qualify
+	oldObjectTypeName  = "OldObject"
+	oldSelfVar         = "oldSelf"
+	oldObjectVar       = "oldObject"
+	convertedObjectVar = "convertedObject"
 )
 
 // ConvertWithTemplate performs a version conversion using the patch.
@@ -64,21 +66,37 @@ func ConvertWithTemplate(fromVersionSchema, toVersionSchema *spec.Schema, toVers
 	return Merge(toVersionSchema, pruned, ac, true)
 }
 
-func ConvertApply(fromVersionSchema, toVersionSchema *spec.Schema, toVersionStructuralSchema *schema.Structural, fromObject, patch any) any {
+func ConvertBasicMerge(fromVersionSchema, toVersionSchema *spec.Schema, toVersionStructuralSchema *schema.Structural, fromObject, patch any) any {
 	oldOpenAPISchema := &openapi.Schema{Schema: fromVersionSchema}
 	newOpenAPISchema := &openapi.Schema{Schema: toVersionSchema}
 	// Conversion Flow:
-	// 1. Build the apply configuration
-	expression := patch.(map[string]any)["mutation"].(string)
-	ac := Eval(oldOpenAPISchema, newOpenAPISchema, fromObject, expression, true)
-	// 2. Start converting the v1 object to v2 and pruning: (a) any fields not in v2,
+	// 1. Start converting the v1 object to v2 and pruning: (a) any fields not in v2,
 	//    (b) any fields with incorrect types (c) any listType=map entries with missing keys.
 	// TODO: This prune is probably better handled by checking differences between schemas
 	// and only keeping what is compatible.
 	pruned := runtime.DeepCopyJSON(fromObject.(map[string]any))
 	Prune(pruned, toVersionStructuralSchema, true)
+	// 2. build the apply configuration
+	expression := patch.(map[string]any)["mutation"].(string)
+	ac := EvalConversion(oldOpenAPISchema, newOpenAPISchema, fromObject, pruned, expression)
 	// 3. Merge the patch with the pruned object
 	return Merge(toVersionSchema, pruned, ac, true)
+}
+
+func ConvertApply(fromVersionSchema, toVersionSchema *spec.Schema, toVersionStructuralSchema *schema.Structural, fromObject, patch any) any {
+	oldOpenAPISchema := &openapi.Schema{Schema: fromVersionSchema}
+	newOpenAPISchema := &openapi.Schema{Schema: toVersionSchema}
+	// Conversion Flow:
+	// 1. Start converting the v1 object to v2 and pruning: (a) any fields not in v2,
+	//    (b) any fields with incorrect types (c) any listType=map entries with missing keys.
+	// TODO: This prune is probably better handled by checking differences between schemas
+	// and only keeping what is compatible.
+	pruned := runtime.DeepCopyJSON(fromObject.(map[string]any))
+	Prune(pruned, toVersionStructuralSchema, true)
+	// 2. Build the apply configuration and merge it
+	expression := patch.(map[string]any)["mutation"].(string)
+	expression = "objects.apply(convertedObject, " + expression + "\n)" // newline to guard against trailing comment
+	return EvalConversion(oldOpenAPISchema, newOpenAPISchema, fromObject, pruned, expression)
 }
 
 // MutateWithTemplate applies the patch to the object.
@@ -88,17 +106,19 @@ func MutateWithTemplate(schema *spec.Schema, obj, patch any) any {
 	return Merge(schema, obj, applyConfiguration, false)
 }
 
-func MutateApply(schema *spec.Schema, obj any, patch any) any {
+func MutateBasicMerge(schema *spec.Schema, obj any, patch any) any {
 	expression := patch.(map[string]any)["mutation"].(string)
 	openAPISchema := &openapi.Schema{Schema: schema}
-	applyConfiguration := Eval(openAPISchema, openAPISchema, obj, expression, false)
+	applyConfiguration := EvalMutate(openAPISchema, openAPISchema, obj, expression)
 	return Merge(schema, obj, applyConfiguration, false)
 }
 
-func MutateDirect(schema *spec.Schema, obj any, patch any) any {
+func MutateApply(schema *spec.Schema, obj any, patch any) any {
 	expression := patch.(map[string]any)["mutation"].(string)
+	// TODO: replace with AST modification?
+	expression = "objects.apply(oldObject, " + expression + "\n)" // newline to guard against trailing comment
 	openAPISchema := &openapi.Schema{Schema: schema}
-	result := Eval(openAPISchema, openAPISchema, obj, expression, false)
+	result := EvalMutate(openAPISchema, openAPISchema, obj, expression)
 	return result
 }
 
@@ -137,15 +157,21 @@ func Substitute(oldObjectSchema, patchSchema common.Schema, obj, patch any, isCo
 	return a.applyTemplate(patchSchema, patch, obj)
 }
 
-func Eval(oldObjectSchema, patchSchema common.Schema, obj any, expression string, isConversion bool) any {
-	a := &applier{patchSchema: patchSchema, oldObjectSchema: oldObjectSchema, oldObject: obj, isConvertion: isConversion}
-	return a.evaluateSubstitution(nil, nil, expression, isConversion)
+func EvalMutate(oldObjectSchema, patchSchema common.Schema, obj any, expression string) any {
+	a := &applier{patchSchema: patchSchema, oldObjectSchema: oldObjectSchema, oldObject: obj, isConvertion: false}
+	return a.evaluateSubstitution(expression, false)
+}
+
+func EvalConversion(oldObjectSchema, patchSchema common.Schema, obj, convertedObj any, expression string) any {
+	a := &applier{patchSchema: patchSchema, oldObjectSchema: oldObjectSchema, convertedObject: convertedObj, oldObject: obj, isConvertion: true}
+	return a.evaluateSubstitution(expression, true)
 }
 
 type applier struct {
 	patchSchema     common.Schema
 	oldObjectSchema common.Schema
 	oldObject       any
+	convertedObject any
 	isConvertion    bool
 }
 
@@ -154,7 +180,7 @@ type applier struct {
 func (a *applier) applyTemplate(schema common.Schema, patchValue, oldValue any) any {
 	if m, ok := patchValue.(map[string]any); ok {
 		if v, ok := m[templateVar]; ok {
-			return a.evaluateSubstitution(schema, oldValue, v.(string), a.isConvertion)
+			return a.evaluateSubstitution(v.(string), a.isConvertion)
 		}
 	}
 	if schema.Properties() != nil {
@@ -213,40 +239,79 @@ func (a *applier) applyTemplate(schema common.Schema, patchValue, oldValue any) 
 
 // TODO: This is not right. The schema needs to be the right one for whatever object "apply()"
 // was called on, which is not necessarily the root schema.
-type merger struct {
-	schema        *spec.Schema
-	openAPISchema common.Schema
+type merger struct{}
+
+type TypedRefVal interface {
+	Schema() common.Schema
 }
 
 func (m *merger) Merge(obj, patch, removals ref.Val) ref.Val {
+	t, ok := obj.(TypedRefVal)
+	if !ok {
+		panic("expected TypedRefVal")
+	}
+	commonSchema := t.Schema()
+	openAPISchema := commonSchema.(*openapi.Schema) // TODO
+	s := openAPISchema.Schema
 	objVal := valueToUnstructured(obj)
 	patchval := valueToUnstructured(patch)
 
-	result := Merge(m.schema, objVal, patchval, false)
+	result := Merge(s, objVal, patchval, false)
 	resultObj := result.(map[string]any)
 	iter := removals.(traits.Iterable).Iterator()
 	for iter.HasNext() == types.True {
 		removal := iter.Next().Value().(string)
-		delete(resultObj, removal)
+		removalPath := strings.Split(removal, ".")
+		result = m.filter(result, removalPath)
 	}
-	return common.UnstructuredToVal(resultObj, m.openAPISchema)
+	return common.UnstructuredToVal(resultObj, openAPISchema)
+}
+
+// TODO: Account for listType=map
+func (m *merger) filter(obj any, path []string) any {
+	l := len(path)
+	switch l {
+	case 0:
+		panic("path must be non-empty")
+	case 1:
+		key := path[0]
+		switch o := obj.(type) {
+		case map[string]any:
+			delete(o, key)
+			return o
+		case []any:
+			// TODO: support removals from listType=map using key fields
+			panic("removals not supported for lists")
+		default:
+			panic("path must contain valid map keys and list indices")
+		}
+	default:
+		key := path[0]
+		switch o := obj.(type) {
+		case map[string]any:
+			o[key] = m.filter(o[key], path[1:])
+			return o
+		case []any:
+			// TODO: support removals from listType=map using key fields
+			panic("removals not supported for lists")
+		default:
+			panic("path must contain valid map keys and list indices")
+		}
+	}
 }
 
 // evaluateSubstitution a template variable substitution CEL expression.
-func (a *applier) evaluateSubstitution(selfSchema common.Schema, self any, expression string, isConversion bool) any {
-	//selfDecl := common.SchemaDeclType(selfSchema, selfSchema == a.rootSchema)
-	//selfVal := common.UnstructuredToVal(self, selfSchema)
-
+func (a *applier) evaluateSubstitution(expression string, isConversion bool) any {
 	objVal := common.UnstructuredToVal(a.oldObject, a.oldObjectSchema)
 
-	m := &merger{schema: a.oldObjectSchema.(*openapi.Schema).Schema, openAPISchema: a.oldObjectSchema}
+	m := &merger{}
 	baseEnv, err := buildBaseEnv(m)
 	if err != nil {
 		panic(err)
 	}
 
 	var rt *common.OpenAPITypeProvider
-	var oldObjectCelType *cel.Type
+	var oldObjectCelType, convertedObjectCelType *cel.Type
 	if isConversion {
 		patchDecl := common.SchemaDeclType(a.patchSchema, true).MaybeAssignTypeName(objectTypeName)
 		oldObjectDecl := common.SchemaDeclType(a.oldObjectSchema, true).MaybeAssignTypeName(oldObjectTypeName)
@@ -254,6 +319,7 @@ func (a *applier) evaluateSubstitution(selfSchema common.Schema, self any, expre
 		if err != nil {
 			panic(err)
 		}
+		convertedObjectCelType = patchDecl.CelType()
 		oldObjectCelType = oldObjectDecl.CelType()
 	} else {
 		objectDecl := common.SchemaDeclType(a.patchSchema, true).MaybeAssignTypeName(objectTypeName)
@@ -269,9 +335,13 @@ func (a *applier) evaluateSubstitution(selfSchema common.Schema, self any, expre
 		panic(err)
 	}
 	opts = append(opts,
-		//cel.Variable(oldSelfVar, selfDecl.CelType()),
 		cel.Variable(oldObjectVar, oldObjectCelType),
 	)
+	if isConversion {
+		opts = append(opts,
+			cel.Variable(convertedObjectVar, convertedObjectCelType),
+		)
+	}
 	env, err := baseEnv.Extend(opts...)
 	if err != nil {
 		panic(err)
@@ -285,7 +355,11 @@ func (a *applier) evaluateSubstitution(selfSchema common.Schema, self any, expre
 	if err != nil {
 		panic(err)
 	}
-	activation := &evaluationActivation{self: nil, object: objVal}
+	activation := &evaluationActivation{object: objVal}
+	if a.isConvertion {
+		conversionVal := common.UnstructuredToVal(a.convertedObject, a.patchSchema)
+		activation.conversionObject = conversionVal
+	}
 	v, _, err := prog.Eval(activation)
 	if err != nil {
 		panic(err)
@@ -353,17 +427,17 @@ func buildBaseEnv(merger cel2.Merger) (*cel.Env, error) {
 }
 
 type evaluationActivation struct {
-	object, self any
+	object, conversionObject any
 }
 
 // ResolveName returns a value from the activation by qualified name, or false if the name
 // could not be found.
 func (a *evaluationActivation) ResolveName(name string) (interface{}, bool) {
 	switch name {
-	case oldSelfVar:
-		return a.self, true
 	case oldObjectVar:
 		return a.object, true
+	case convertedObjectVar:
+		return a.conversionObject, true
 	default:
 		return nil, false
 	}

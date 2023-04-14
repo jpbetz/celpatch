@@ -43,6 +43,15 @@ properties:
               type: string
             field1:
               type: integer
+      extra:
+        type: object
+        additionalProperties:
+          type: object
+          properties:
+            f1:
+              type: string
+            f2:
+              type: string
       something:
         type: integer
   status:

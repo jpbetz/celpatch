@@ -4,7 +4,6 @@ metadata:
   name: "alpha"
 spec:
   deploymentName: "alpha-deployment"
-  replicas: 1
   list:
     - "a"
   listMap:
@@ -12,4 +11,6 @@ spec:
       value: "1"
     - key: "k2"
       value: "200"
-
+  extra:
+    "key1":
+      f1: "a"

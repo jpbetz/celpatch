@@ -1,14 +1,20 @@
 mutation: >
-    objects.apply(oldObject, Object{
+    Object{
         spec: Object.spec{
             deploymentName: oldObject.metadata.name + '-deployment',
+            ?replicas: optional.none(),
             list: oldObject.spec.list.filter(e, e != 'b'),
             listMap: [
                 Object.spec.listMap.item{
                     key: "k2",
                     value: string(4 * 50)
                 }
-            ]
+            ],
+            extra: {
+                "key1": Object.spec.extra.property{
+                    ?f2: optional.none()
+                }
+            }            
         },
         ?status: optional.none()
-    })
+    }
